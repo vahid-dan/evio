@@ -38,15 +38,10 @@ class TincanInterface(ControllerModule):
         self._tincan_listener_thread = None    # UDP listener thread object
         self._tci_publisher = None
 
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._sock_svr = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # Controller UDP listening socket
-        self._sock_svr.bind((self._cm_config["RcvServiceAddress"],
-                             self._cm_config["CtrlRecvPort"]))
+        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         # Controller UDP sending socket
-        self._dest = (self._cm_config["SndServiceAddress"], self._cm_config["CtrlSendPort"])
-        self._sock.bind(("", 0))
-        self._sock_list = [self._sock_svr]
+        self._dest = './uds_socket-tincan'
+        self._sock.connect(self._dest)
         self.iptool = spawn.find_executable("ip")
 
     def initialize(self):
@@ -61,23 +56,18 @@ class TincanInterface(ControllerModule):
     def __tincan_listener(self):
         try:
             while True:
-                socks, _, _ = select.select(self._sock_list, [], [],
-                                            self._cm_config["SocketReadWaitTime"])
-                # Iterate across all socket list to obtain Tincan messages
-                for sock in socks:
-                    if sock == self._sock_svr:
-                        data = sock.recvfrom(self._cm_config["MaxReadSize"])
-                        ctl = json.loads(data[0].decode("utf-8"))
-                        if ctl["EVIO"]["ProtocolVersion"] != ver.EVIO_VER_CTL:
-                            raise ValueError("Invalid control version detected")
-                        # Get the original CBT if this is the response
-                        if ctl["EVIO"]["ControlType"] == "TincanResponse":
-                            cbt = self._cfx_handle._pending_cbts[ctl["EVIO"]["TransactionId"]]
-                            cbt.set_response(ctl["EVIO"]["Response"]["Message"],
-                                             ctl["EVIO"]["Response"]["Success"])
-                            self.complete_cbt(cbt)
-                        else:
-                            self._tci_publisher.post_update(ctl["EVIO"]["Request"])
+                data = self._sock.recv(self._cm_config["MaxReadSize"])
+                ctl = json.loads(data.decode("utf-8"))
+                if ctl["EVIO"]["ProtocolVersion"] != ver.EVIO_VER_CTL:
+                    raise ValueError("Invalid control version detected")
+                # Get the original CBT if this is the response
+                if ctl["EVIO"]["ControlType"] == "TincanResponse":
+                    cbt = self._cfx_handle._pending_cbts[ctl["EVIO"]["TransactionId"]]
+                    cbt.set_response(ctl["EVIO"]["Response"]["Message"],
+                                     ctl["EVIO"]["Response"]["Success"])
+                    self.complete_cbt(cbt)
+                else:
+                    self._tci_publisher.post_update(ctl["EVIO"]["Request"])
         except Exception as err:
             log_cbt = self.register_cbt(
                 "Logger", "LOG_WARNING", "Tincan Listener exception:{0}\n"
@@ -244,7 +234,7 @@ class TincanInterface(ControllerModule):
             self.free_cbt(cbt)
 
     def send_control(self, msg):
-        return self._sock.sendto(bytes(msg.encode("utf-8")), self._dest)
+        return self._sock.send(bytes(msg.encode("utf-8")))
 
     def timer_method(self):
         pass
