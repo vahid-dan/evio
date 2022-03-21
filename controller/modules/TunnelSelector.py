@@ -36,10 +36,10 @@ EdgeNegotiate = namedtuple(
     "EdgeNegotiate", EdgeRequest._fields + EdgeResponse._fields)
 
 SupportedTunnels = ["GENEVE", "TINCAN"]
-'''
+"""
 NOTES:
 No need to track which tunnels are authorized. The NetworkBuilder already does.
-'''
+"""
 
 
 class TunnelSelector():
@@ -51,7 +51,7 @@ class TunnelSelector():
         self._node_id = node_id
         self._loc_id = loc_id
         self._encr_req = encr_req
-        self._tunnels = {}  # Maps tunnel_id to 'type', 'state', and 'time'
+        self._tunnels = {}  # Maps tunnel_id to "protocol", "state", and "time"
         self.logger = top_man.logger
 
     def __repr__(self):
@@ -126,19 +126,20 @@ class TunnelSelector():
         self.logger.info(f"Tunnel Selector: Authorizing peer edge from {self._overlay_id}:{edge_req.initiator_id[:7]}->{self._node_id[:7]}")
         params = {"OverlayId": self._overlay_id,
                   "PeerId": edge_req.initiator_id, "TunnelId": edge_req.edge_id}
-        cbt = self._top.create_linked_cbt(parent_cbt)
         # cbt.set_request(self._top.module_name, "LinkManager",
         #                 "LNK_AUTH_TUNNEL", params)
         tunnel_id = edge_req.edge_id
         if self._loc_id == edge_req.location_id and not self._encr_req and "GENEVE" in edge_req.capability and "GENEVE" in self.supported_tunnels:
             self.logger.info(f"Tunnel Selector: Sending request for GENEVE tunnel {edge_req.edge_id} authorization ...")
-            self._tunnels[tunnel_id] = {'type': 'GENEVE', 'state': 'authorized', 'time': time.time()}
+            self._tunnels[tunnel_id] = {"protocol": "GENEVE", "state": "authorized", "time": time.time()}
+            cbt = self._top.create_linked_cbt(parent_cbt)
             cbt.set_request(self._top.module_name, "GeneveTunnel",
                             "GNV_AUTH_TUNNEL", params)
             self._top.submit_cbt(cbt)
         elif "TINCAN" in edge_req.capability and "TINCAN" in self.supported_tunnels:
             self.logger.info(f"Tunnel Selector: Sending request for Tincan tunnel {edge_req.edge_id} authorization ...")
-            self._tunnels[tunnel_id] = {'type': 'TINCAN', 'state': 'authorized', 'time': time.time()}
+            self._tunnels[tunnel_id] = {"protocol": "TINCAN", "state": "authorized", "time": time.time()}
+            cbt = self._top.create_linked_cbt(parent_cbt)
             cbt.set_request(self._top.module_name, "LinkManager",
                             "LNK_AUTH_TUNNEL", params)
             self._top.submit_cbt(cbt)
@@ -155,22 +156,22 @@ class TunnelSelector():
                   "PeerId": peer_id, "TunnelId": tunnel_id}
         # self._top.register_cbt("LinkManager", "LNK_CREATE_TUNNEL", params)
         if tunnel_id in self._tunnels:
-            if 'type' in self._tunnels[tunnel_id]:
-                if self._tunnels[tunnel_id]['state'] == 'created':
+            if "protocol" in self._tunnels[tunnel_id]:
+                if self._tunnels[tunnel_id]["state"] == "created":
                     self.logger.warning(f"Tunnel Selector: Tunnel {self._tunnels[tunnel_id]} already registered as created in journal")
                 else:
-                    if self._tunnels[tunnel_id]['type'] == 'GENEVE':
+                    if self._tunnels[tunnel_id]["protocol"] == "GENEVE":
                         self.logger.info(f"Tunnel Selector: Sending request for GENEVE tunnel {self._tunnels[tunnel_id]} creation ...")
-                        self._tunnels[tunnel_id] = {'state': 'created', 'time': time.time()}
+                        self._tunnels[tunnel_id] = {"state": "created", "time": time.time()}
                         self._top.register_cbt("GeneveTunnel", "GNV_CREATE_TUNNEL", params)
-                    elif self._tunnels[tunnel_id]['type'] == 'TINCAN':
+                    elif self._tunnels[tunnel_id]["protocol"] == "TINCAN":
                         self.logger.info(f"Tunnel Selector: Sending request for Tincan tunnel {self._tunnels[tunnel_id]} creation ...")
-                        self._tunnels[tunnel_id] = {'state': 'created', 'time': time.time()}
+                        self._tunnels[tunnel_id] = {"state": "created", "time": time.time()}
                         self._top.register_cbt("LinkManager", "LNK_CREATE_TUNNEL", params)
                     else:
-                        self.logger.warning(f"Tunnel Selector: Tunnel type {self._tunnels[tunnel_id]['type']} not supported")
+                        self.logger.warning(f"Tunnel Selector: Tunnel type {self._tunnels[tunnel_id]["protocol"]} not supported")
             else:
-                self.logger.warning(f"Tunnel Selector: Tunnel type {self._tunnels[tunnel_id]['type']} not registered in journal for creation")
+                self.logger.warning(f"Tunnel Selector: Tunnel type {self._tunnels[tunnel_id]["protocol"]} not registered in journal for creation")
         else:
             self.logger.warning(f"Tunnel Selector: Tunnel ID {tunnel_id} not registered in journal for creation")
         self.logger.debug(self._tunnels)
@@ -180,20 +181,20 @@ class TunnelSelector():
                   "PeerId": peer_id, "TunnelId": tunnel_id}
         # self._top.register_cbt("LinkManager", "LNK_REMOVE_TUNNEL", params)
         if tunnel_id in self._tunnels:
-            if 'state' in self._tunnels[tunnel_id]:
-                if self._tunnels[tunnel_id]['state'] == 'created':
-                    if self._tunnels[tunnel_id]['type'] == 'GENEVE':
+            if "state" in self._tunnels[tunnel_id]:
+                if self._tunnels[tunnel_id]["state"] == "created":
+                    if self._tunnels[tunnel_id]["protocol"] == "GENEVE":
                         self.logger.info(f"Tunnel Selector: Sending request for GENEVE tunnel {self._tunnels[tunnel_id]} removal ...")
                         self._top.register_cbt("GeneveTunnel", "GNV_REMOVE_TUNNEL", params)
                         del self._tunnels[tunnel_id]
                         self.logger.info(f"Tunnel Selector: GENEVE Tunnel {self._tunnels[tunnel_id]} removed from journal")
-                    elif self._tunnels[tunnel_id]['type'] == 'TINCAN':
+                    elif self._tunnels[tunnel_id]["protocol"] == "TINCAN":
                         self.logger.info(f"Tunnel Selector: Sending request for Tincan tunnel {self._tunnels[tunnel_id]} removal ...")
                         self._top.register_cbt("LinkManager", "LNK_REMOVE_TUNNEL", params)
                         del self._tunnels[tunnel_id]
                         self.logger.info(f"Tunnel Selector: Tincan Tunnel {self._tunnels[tunnel_id]} removed from journal")
                     else:
-                        self.logger.warning(f"Tunnel Selector: Tunnel type {self._tunnels[tunnel_id]['type']} not supported for removal")
+                        self.logger.warning(f"Tunnel Selector: Tunnel type {self._tunnels[tunnel_id]["protocol"]} not supported for removal")
                 else:
                     self.logger.warning(f"Tunnel Selector: Tunnel {self._tunnels[tunnel_id]} not registered in journal for removal")
             else:
@@ -209,7 +210,7 @@ class TunnelSelector():
         """
         er = EdgeRequest(overlay_id=self._overlay_id, edge_id=edge_id, edge_type=edge_type,
                          recipient_id=peer_id, initiator_id=self._node_id, location_id=self._loc_id,
-                         capability=self.supported_tunnels)
+                         capability=self.supported_tunnels) #TODO: Handle capablilities dynamicly
 
         self.logger.debug(f"Tunnel Selector: Requesting edge auth edge_req={er}")
         edge_params = er._asdict()
@@ -222,4 +223,6 @@ class TunnelSelector():
         pass
 
     def on_tunnel_event(self, event):
+        # State of on-going tunnles after creation
+        # Look at on_edge_update from NetworkBuilder
         pass
